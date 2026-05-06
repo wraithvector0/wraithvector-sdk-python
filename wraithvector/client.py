@@ -27,12 +27,17 @@ class WraithGuard:
                 timeout=0.5
             )
 
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
+            if self.mode == "enforce":
+                raise Exception (f"Governance unavailible: {e}")
+                
             return None
 
 
-        if r.status_code == 403 and self.mode == "enforce":
-            raise Exception("Action blocked by WraithGuard")
+        if r.status_code >= 400 and self.mode == "enforce":
+            raise Exception(
+                
+            f"Governance failed: {r.status_code}")
 
 
         try:
