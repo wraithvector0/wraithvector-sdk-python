@@ -39,7 +39,12 @@ class WraithGuard:
         self.agent_version = agent_version
         self.session_id=session_id or str(uuid.uuid4())
         self.run_id = str(uuid.uuid4())
+        
 
+      
+    
+    def new_run(self):
+        self.run_id = str(uuid.uuid4())
     
 
 
@@ -65,6 +70,7 @@ class WraithGuard:
         logger.debug("Wraithvector_endpoint: %s", self.endpoint)
 
         max_retries = 3
+        last_error = None
 
         for attempt in range(max_retries +1):
 
@@ -75,55 +81,28 @@ class WraithGuard:
                     headers=headers,
                     timeout=10
                 )
-                break
+                try:
+                    return r.json()
+                except ValueError:
+                    return None
 
             
                 
 
             except RequestException as e:
 
+                last_error = e
+
                 if attempt == max_retries:
                     if self.mode =="enforce":
-                        raise Exception(f"Governance unreachable: after {max_retries} retries : {e}")
+                        raise Exception(f"Governance unreachable {last_error}")
                     
                     logger.error("Governance unreachable: %s", e)
                     
                     return None
                 time.sleep(0.5 *(2** attempt))
 
-
-
-        
-
-
-
     
-    
-
-       
-        
-
-
-        
-      
-
-
-
-        
-        
-
-        
-            
-
-
-        if not r.text:
-            return None
-        return r.json()
-        
-
-    
-
-
 
     def tool(self, func):
         @functools.wraps(func)
