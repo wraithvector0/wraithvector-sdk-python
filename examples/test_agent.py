@@ -8,6 +8,11 @@ from wraithvector.client import WraithGuard
 
 load_dotenv()
 
+import os
+
+load_dotenv(override=True)
+
+print("API KEY =", os.getenv("WRAITHVECTOR_API_KEY"))
 
 guard = WraithGuard(
     api_key=os.getenv("WRAITHVECTOR_API_KEY"),
@@ -28,9 +33,17 @@ guard.tool_request(
 
 
 print("sending tool request...")
-guard.tool_request(
-    tool_name="exec",
-    args={"command": "rm -rf /"}
-)
+#guard.tool_request(
+    #tool_name="exec",
+    #args={"command": "rm -rf /"}
+#)
+
 
 print("done")
+
+@guard.tool
+def hola(nombre):
+    print("ejecutando la funcion")
+    return f"hola {nombre}"
+
+print(hola("fran"))

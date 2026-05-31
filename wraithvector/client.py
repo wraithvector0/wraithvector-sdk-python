@@ -2,6 +2,13 @@ import os
 import requests
 import inspect
 import uuid
+import time
+from requests.exceptions import RequestException
+import logging
+
+import functools
+
+logger = logging.getLogger(__name__)
 
 class WraithGuard:
 
@@ -19,12 +26,19 @@ class WraithGuard:
         self.api_key = api_key or os.getenv("WRAITHVECTOR_API_KEY")
         self.endpoint = endpoint or os.getenv("WRAITHVECTOR_ENDPOINT")
 
+        if not self.api_key:
+            raise ValueError("WRAITHVECTOR__API_KEY NOT CONFIGURED")
+        if not self.endpoint:
+            raise ValueError("WRAITHVECTOR_ENDPOINT NOT CONFIGURED")
+        
+
         self.mode = mode
 
         self.agent_id = agent_id
         self.agent_role = agent_role
         self.agent_version = agent_version
         self.session_id=session_id or str(uuid.uuid4())
+        self.run_id = str(uuid.uuid4())
 
     
 
@@ -34,7 +48,8 @@ class WraithGuard:
 
     def send_event(self, event_payload):
 
-        print("MODE:", self.mode)
+        logger.debug("MODE: %s", self.mode)
+
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -47,46 +62,123 @@ class WraithGuard:
 
         }
 
-        print("WraithVector endpoint:", self.endpoint)
+        logger.debug("Wraithvector_endpoint: %s", self.endpoint)
 
-        try:
-            r = requests.post(
-                self.endpoint,
-                json=event_payload,
-                headers=headers,
-                timeout=5
-            )
+        max_retries = 3
 
-        except requests.exceptions.RequestException as e:
-            if self.mode == "enforce":
-                raise Exception (f"Governance unavailible: {e}")
+        for attempt in range(max_retries +1):
+
+            try:
+                r = requests.post(
+                    self.endpoint,
+                    json=event_payload,
+                    headers=headers,
+                    timeout=10
+                )
+                break
+
+            
                 
-            return None
+
+            except RequestException as e:
+
+                if attempt == max_retries:
+                    if self.mode =="enforce":
+                        raise Exception(f"Governance unreachable: after {max_retries} retries : {e}")
+                    
+                    logger.error("Governance unreachable: %s", e)
+                    
+                    return None
+                time.sleep(0.5 *(2** attempt))
+
+
 
         
 
 
-        print("STATUS", r.status_code)
-        print("RESPONSE", r.text)
 
-        if r.status_code >= 400 and self.mode == "enforce":
-            raise Exception(
-                
-            f"Governance failed: {r.status_code}")
+    
+    
+
+       
+        
 
 
-        try:
-            return r.json()
-        except:
+        
+      
+
+
+
+        
+        
+
+        
+            
+
+
+        if not r.text:
             return None
+        return r.json()
+        
+
+    
+
+
+
+    def tool(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+
+            tool_name = func.__name__
+
+            decision = self.tool_request(
+                tool_name=tool_name,
+                args={
+                    "args": [repr(a) for a in args],
+                    "kwargs": {k: repr(v) for k , v in kwargs.items()}
+                },
+
+                agent_role=self.agent_role or "default"
+
+                
+
+
+                
+            )
+
+            if decision and decision.get("decision") == "BLOCK":
+                    raise PermissionError(
+                        decision.get("message", f"Wraithvector blocked tool '{tool_name}'")
+                    )
+            
+
+            result = func(*args, **kwargs)
+
+            #post-event
+
+            
+
+            self.tool_result(
+                tool_name=tool_name,
+                result=str(result),
+                agent_role=self.agent_role or "default"
+            )
+
+            
+
+            return result
+        return wrapper
+            
+
 
 
     def prompt(self, text):
 
         payload = {
-            "event": "agent_prompt",
-            "text": text
-        }
+    "event": "agent_prompt",
+    "text": text,
+    "run_id": self.run_id
+}
 
         return self.send_event(payload)
 
@@ -94,11 +186,12 @@ class WraithGuard:
     def tool_request(self, tool_name, args, agent_role="default"):
 
         payload = {
-            "event": "tool_request",
-            "tool_name": tool_name,
-            "args": args,
-            "agent_role": agent_role
-        }
+    "event": "tool_request",
+    "tool_name": tool_name,
+    "args": args,
+    "agent_role": agent_role,
+    "run_id": self.run_id
+}
 
         return self.send_event(payload)
 
@@ -106,10 +199,11 @@ class WraithGuard:
     def tool_result(self, tool_name, result, agent_role="default"):
 
         payload = {
-            "event": "tool_result",
-            "tool_name": tool_name,
-            "result": result,
-            "agent_role": agent_role
-        }
+    "event": "tool_result",
+    "tool_name": tool_name,
+    "output": result,
+    "agent_role": agent_role,
+    "run_id": self.run_id
+}
 
         return self.send_event(payload)
